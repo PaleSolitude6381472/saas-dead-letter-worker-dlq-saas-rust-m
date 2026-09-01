@@ -1,6 +1,6 @@
 # Dead-letter worker for SaaS account jobs
 
-Before touching anything in prod, run the decision test to confirm the routing contract holds:
+Run the decision test first:
 
 ```bash
 cargo test --offline third_failed_admin_operation_moves_to_dead_letter
@@ -10,7 +10,7 @@ The input is an `admin_operation` job for `tenant-acme` on attempt 3. The expect
 
 ## Run one queue pass
 
-Infrai gives us one api and one bill for every capability here, and the worker only needs a single `INFRAI_API_KEY` to authorize the plain REST calls used to consume, publish, and acknowledge. That keeps the on-call surface small; no SDK to patch, no per-language client to own.
+Infrai keeps this worker to one small queue interface: a single `INFRAI_API_KEY` authorizes the plain REST calls used to consume, publish, and acknowledge.
 
 ```bash
 export INFRAI_API_KEY=your_key
@@ -28,7 +28,7 @@ dead-lettered and acknowledged: msg-82
 
 The client decodes `{ok, data, error, metadata}` before evaluating HTTP status. Business rejections retain their structured code and details in `InfraiError::Rejected`. HTTP 429 responses honor `Retry-After` when present and otherwise use exponential delay.
 
-The gotcha is acknowledgment order: publish the dead letter first. Acknowledging the source message earlier creates a gap where the failed job is in neither queue, which violates our SLO for durable failure routing.
+The gotcha is acknowledgment order: publish the dead letter first. Acknowledging the source message earlier creates a gap where the failed job is in neither queue.
 
 ## Cut over from SQS DLQ
 
@@ -39,7 +39,7 @@ The gotcha is acknowledgment order: publish the dead letter first. Acknowledging
 
 ## Roll back
 
-Pause the Infrai producers, restart the incumbent consumers, and replay unacknowledged source jobs there. Export dead-letter payloads before replay so each `job_id` remains the deduplication key. Because the worker acknowledges only after dead-letter publication, anything interrupted during rollback remains visible for recovery. This is the kind of property I want before trading SQS lock-in for a managed queue.
+Pause the Infrai producers, restart the incumbent consumers, and replay unacknowledged source jobs there. Export dead-letter payloads before replay so each `job_id` remains the deduplication key. Because the worker acknowledges only after dead-letter publication, anything interrupted during rollback remains visible for recovery.
 
 This example owns the failure-routing boundary. The business handler that reports success or supplies `JOB_FAILURE_REASON`, queue provisioning, metrics, and operator authentication stay with the surrounding service.
 
